@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Building a Real-Time Job Monitor on IBM i with Bob</title>
+  <style>
+    /* ── IBM Carbon Design System — Light Theme ───────────────────────────── */
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      /* IBM Design Language — official token values */
+      --ibm-blue-60:    #0f62fe;   /* interactive / links          */
+      --ibm-blue-70:    #0043ce;   /* link hover                   */
+      --ibm-blue-10:    #edf5ff;   /* subtle tint for info callout */
+      --ibm-gray-100:   #161616;   /* primary text / headings      */
+      --ibm-gray-70:    #525252;   /* secondary text               */
+      --ibm-gray-30:    #c6c6c6;   /* disabled / muted             */
+      --ibm-gray-20:    #e0e0e0;   /* borders                      */
+      --ibm-gray-10:    #f4f4f4;   /* code background / subtle bg  */
+      --ibm-white:      #ffffff;   /* page background              */
+      --ibm-green-60:   #198038;   /* success                      */
+      --ibm-green-10:   #defbe6;   /* success tint                 */
+      --ibm-red-60:     #da1e28;   /* error                        */
+      --ibm-red-10:     #fff1f1;   /* error tint                   */
+      --ibm-yellow-30:  #f1c21b;   /* warning                      */
+      --ibm-yellow-10:  #fdf6dd;   /* warning tint                 */
+
+      /* Aliases used throughout */
+      --blue:        var(--ibm-blue-60);
+      --blue-dark:   var(--ibm-blue-70);
+      --green:       var(--ibm-green-60);
+      --green-light: var(--ibm-green-10);
+      --red:         var(--ibm-red-60);
+      --red-light:   var(--ibm-red-10);
+      --yellow:      var(--ibm-yellow-30);
+      --yellow-bg:   var(--ibm-yellow-10);
+      --gray-100:    var(--ibm-gray-10);   /* backgrounds — light */
+      --gray-200:    var(--ibm-gray-20);   /* borders             */
+      --gray-700:    var(--ibm-gray-70);   /* secondary text      */
+      --gray-900:    var(--ibm-gray-100);  /* primary text        */
+      --white:       var(--ibm-white);
+      --terminal-bg: #161616;              /* Gray 100 as dark term bg */
+
+      --font-sans:  'IBM Plex Sans', 'Segoe UI', Arial, sans-serif;
+      --font-mono:  'IBM Plex Mono', 'Courier New', monospace;
+      --max-width:  860px;
+      --radius:     4px;   /* Carbon uses tight, near-square corners */
+    }
+
+    html { scroll-behavior: smooth; }
+
+    /* ── Base — IBM Documentation body style ─────────────────────────────── */
+    body {
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--gray-900);
+      background: var(--white);
+    }
+
+    /* ── Header — IBM Blue 60 solid bar (clean, not gradient) ────────────── */
+    .site-header {
+      background: #0f62fe;  /* IBM Blue 60 — primary brand colour */
+      color: var(--white);
+      padding: 56px 24px 48px;
+      text-align: center;
+      border-bottom: 4px solid #0043ce;
+    }
+
+    .site-header .badge {
+      display: inline-block;
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.35);
+      border-radius: 2px;
+      font-size: 11px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      margin-bottom: 20px;
+      font-family: var(--font-mono);
+    }
+
+    .site-header h1 {
+      font-size: clamp(1.75rem, 4vw, 2.625rem);  /* ~42px at desktop */
+      font-weight: 600;
+      line-height: 1.2;
+      max-width: 760px;
+      margin: 0 auto 14px;
+      letter-spacing: -.01em;
+    }
+
+    .site-header .subtitle {
+      font-size: 1rem;
+      opacity: .85;
+      margin-bottom: 24px;
+      font-weight: 400;
+    }
+
+    .site-header .meta {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      font-size: .875rem;
+      opacity: .75;
+    }
+    .site-header .meta span::before { content: '· '; }
+    .site-header .meta span:first-child::before { content: ''; }
+
+    /* ── Bob avatar — sits in header ────────────────────────────────────── */
+    .bob-avatar-wrap { display: flex; justify-content: center; margin-bottom: 20px; }
+    .bob-avatar-img {
+      width: 110px;
+      height: 110px;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 16px rgba(0,0,0,.35));
+    }
+
+    /* ── Screenshot images ───────────────────────────────────────────────── */
+    .screenshot-wrap {
+      margin: 24px 0;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--gray-200);
+      box-shadow: 0 2px 8px rgba(0,0,0,.10);
+    }
+    .screenshot-wrap img {
+      width: 100%;
+      display: block;
+    }
+
+    /* ── Quick Summary banner ────────────────────────────────────────────── */
+    .tldr {
+      background: var(--ibm-blue-10);
+      border-left: 4px solid var(--blue);
+      max-width: var(--max-width);
+      margin: 40px auto 0;
+      padding: 16px 20px;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      font-size: .9375rem;  /* 15px */
+      color: var(--gray-900);
+    }
+    .tldr strong { color: var(--blue-dark); font-weight: 600; }
+
+    /* ── Page layout ─────────────────────────────────────────────────────── */
+    .page-wrap {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── Section headings — IBM Documentation style ──────────────────────── */
+    h2 {
+      font-size: 2rem;          /* 32px */
+      font-weight: 600;
+      color: var(--gray-900);
+      margin: 56px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--gray-200);
+      letter-spacing: -.01em;
+    }
+
+    h3 {
+      font-size: 1.5rem;        /* 24px */
+      font-weight: 600;
+      color: var(--gray-900);   /* Gray 100 — not blue; IBM docs use neutral */
+      margin: 32px 0 10px;
+    }
+
+    h4 {
+      font-size: 1.25rem;       /* 20px */
+      font-weight: 600;
+      color: var(--gray-900);
+      margin: 24px 0 8px;
+    }
+
+    p { margin-bottom: 16px; font-size: 1rem; line-height: 1.6; }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { color: var(--blue-dark); text-decoration: underline; }
+
+    strong { font-weight: 600; }
+
+    ul, ol { padding-left: 24px; margin-bottom: 16px; }
+    li { margin-bottom: 4px; line-height: 1.6; }
+
+    /* ── Inline code — IBM Gray 10 background, Gray 100 text ────────────── */
+    code {
+      font-family: var(--font-mono);
+      font-size: .875rem;         /* 14px per IBM spec */
+      background: var(--ibm-gray-10);
+      color: var(--gray-900);
+      padding: 1px 6px;
+      border-radius: 2px;
+      border: 1px solid var(--gray-200);
+    }
+
+    /* ── Code blocks — dark terminal, IBM Plex Mono 14px ────────────────── */
+    .code-block {
+      margin: 24px 0;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid #393939;  /* Gray 70 border */
+      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+
+    .code-block .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #262626;        /* IBM Gray 90 */
+      padding: 8px 16px;
+      border-bottom: 1px solid #393939;
+    }
+
+    .code-block .code-lang {
+      font-family: var(--font-mono);
+      font-size: .75rem;          /* 12px */
+      color: #a8a8a8;             /* IBM Gray 40 */
+      text-transform: uppercase;
+      letter-spacing: .1em;
+    }
+
+    .code-block .code-dots { display: flex; gap: 6px; }
+    .code-block .code-dots span { width: 11px; height: 11px; border-radius: 50%; }
+    .code-block .code-dots span:nth-child(1) { background: #ff5f56; }
+    .code-block .code-dots span:nth-child(2) { background: #ffbd2e; }
+    .code-block .code-dots span:nth-child(3) { background: #27c93f; }
+
+    .code-block pre {
+      background: var(--terminal-bg);  /* IBM Gray 100 = #161616 */
+      color: #f4f4f4;                  /* IBM Gray 10 on dark */
+      padding: 20px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: .875rem;              /* 14px per IBM spec */
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    /* ── IBM i 5250 terminal screen ──────────────────────────────────────── */
+    .terminal-screen {
+      background: #0c0c0c;
+      border: 1px solid #393939;
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin: 24px 0;
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      font-family: var(--font-mono);
+    }
+
+    .terminal-screen .term-bar {
+      background: #1a1a1a;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #393939;
+    }
+    .terminal-screen .term-bar .dots { display: flex; gap: 6px; }
+    .terminal-screen .term-bar .dots span { width:11px;height:11px;border-radius:50%; }
+    .terminal-screen .term-bar .dots span:nth-child(1){background:#ff5f56;}
+    .terminal-screen .term-bar .dots span:nth-child(2){background:#ffbd2e;}
+    .terminal-screen .term-bar .dots span:nth-child(3){background:#27c93f;}
+    .terminal-screen .term-bar .term-title { color:#8b949e; font-size:.75rem; margin-left:8px; }
+
+    .terminal-screen .term-body {
+      padding: 16px 20px;
+      font-size: .875rem;
+      line-height: 1.55;
+      color: #33ff33;
+      background: #0c0c0c;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .terminal-screen .term-body .t-hi  { color:#ffffff; font-weight:600; }
+    .terminal-screen .term-body .t-ul  { text-decoration:underline; color:#ffffff; }
+    .terminal-screen .term-body .t-grn { color:#42be65; font-weight:600; }  /* IBM Green 40 */
+    .terminal-screen .term-body .t-ylw { color:#f1c21b; }
+    .terminal-screen .term-body .t-dim { color:#393939; }
+    .terminal-screen .term-body .t-opt { color:#78a9ff; }  /* IBM Blue 40 */
+
+    /* ── Diff / before-after panels ──────────────────────────────────────── */
+    .diff-wrap {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 24px 0;
+    }
+    @media (max-width: 640px) { .diff-wrap { grid-template-columns: 1fr; } }
+
+    .diff-pane { border-radius: var(--radius); overflow: hidden; }
+    .diff-pane .diff-label {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 14px;
+      font-size: .75rem; font-weight: 600;
+      font-family: var(--font-mono);
+      text-transform: uppercase; letter-spacing: .08em;
+    }
+    .diff-pane.before .diff-label { background: #2d1a1a; color: #ff8389; } /* IBM Red 40 */
+    .diff-pane.after  .diff-label { background: #0e2316; color: #42be65; } /* IBM Green 40 */
+    .diff-pane pre {
+      background: var(--terminal-bg); color: #f4f4f4;
+      padding: 16px; font-family: var(--font-mono);
+      font-size: .875rem; line-height: 1.6; margin: 0; overflow-x: auto;
+    }
+    .diff-pane.before pre .diff-line { color: #ff8389; }
+    .diff-pane.after  pre .diff-line { color: #42be65; }
+
+    /* ── Tables — IBM Documentation style ───────────────────────────────── */
+    .table-wrap { overflow-x: auto; margin: 16px 0; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .9375rem; }
+
+    thead tr { background: #0f62fe; color: var(--white); }  /* IBM Blue 60 */
+    thead th {
+      padding: 12px 16px; text-align: left;
+      font-weight: 600; font-size: .875rem;
+      letter-spacing: .01em;
+    }
+
+    tbody tr { border-bottom: 1px solid var(--gray-200); }
+    tbody tr:nth-child(even) { background: var(--ibm-gray-10); }
+    tbody tr:hover { background: var(--ibm-blue-10); }
+    tbody td { padding: 12px 16px; font-size: .9375rem; vertical-align: top; }
+
+    /* ── Callout / notification boxes — Carbon patterns ──────────────────── */
+    .callout {
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      margin: 20px 0;
+      font-size: .9375rem;
+      line-height: 1.5;
+    }
+    .callout.info    { background: var(--ibm-blue-10);   border-left: 4px solid var(--blue); }
+    .callout.warn    { background: var(--ibm-yellow-10); border-left: 4px solid var(--yellow); }
+    .callout.success { background: var(--ibm-green-10);  border-left: 4px solid var(--green); }
+    .callout.error   { background: var(--ibm-red-10);    border-left: 4px solid var(--red); }
+    .callout strong  { display: block; margin-bottom: 4px; font-weight: 600; color: var(--gray-900); }
+
+    /* ── Blockquote ──────────────────────────────────────────────────────── */
+    blockquote {
+      border-left: 4px solid var(--blue);
+      margin: 20px 0;
+      padding: 12px 20px;
+      background: var(--ibm-gray-10);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      font-style: italic;
+      color: var(--gray-700);
+      font-size: .9375rem;
+    }
+    blockquote p { margin: 0; }
+
+    /* ── Footer — IBM dark bar ───────────────────────────────────────────── */
+    .site-footer {
+      background: #161616;  /* IBM Gray 100 */
+      color: #a8a8a8;        /* IBM Gray 40 */
+      text-align: center;
+      padding: 32px 24px;
+      font-size: .875rem;
+      font-family: var(--font-mono);
+      border-top: 4px solid var(--blue);
+    }
+
+    .site-footer .footer-bob {
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      margin-bottom: 16px;
+    }
+    .site-footer .footer-bob-icon {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: #0f62fe;
+      border: 2px solid rgba(255,255,255,.25);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .site-footer .footer-bob-icon svg { width: 26px; height: 26px; }
+
+    .site-footer .artifacts { margin-bottom: 12px; }
+    .site-footer .artifacts span {
+      display: inline-block; margin: 4px 10px;
+      color: #c6c6c6;  /* IBM Gray 30 */
+    }
+    .site-footer .tags { margin-top: 12px; }
+    .site-footer .tags span {
+      display: inline-block;
+      background: #262626;  /* IBM Gray 90 */
+      border: 1px solid #393939;
+      border-radius: 2px;
+      padding: 3px 10px; margin: 3px;
+      font-size: .75rem; color: #a8a8a8;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .site-header { padding: 40px 16px 32px; }
+      h2 { font-size: 1.5rem; }
+      h3 { font-size: 1.25rem; }
+      .page-wrap { padding: 0 16px 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- HEADER                                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<header class="site-header">
+  <div class="bob-avatar-wrap">
+    <img src="../images/Bob.png" alt="Bob AI assistant" class="bob-avatar-img" />
+  </div>
+  <h1>Building a Real-Time Job Monitor on IBM i with Bob</h1>
+  <div class="meta">
+    <span>Senior IBM i Developer</span>
+    <span>July 2026</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- PAGE BODY                                                               -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="page-wrap">
+
+  <!-- Quick Summary -->
+  <div class="tldr">
+    <strong>Quick Summary —</strong> I used Bob, an AI-powered IBM i development assistant, to build a fully functional
+    real-time MSGW job monitoring subfile from scratch. What would have taken two days of focused development
+    was completed in under an hour — including compile, debug, and iterative enhancement cycles.
+  </div>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="requirement">Use Case</h2>
+
+  <p>
+    As an IBM i developer, I wanted to explore a real-world code generation use case with Bob. I chose production
+    job monitoring, where the goal was to generate a simple subfile screen that displays jobs in
+    <strong>MSGW (Message Wait)</strong> status and enables <strong>L1 Service Desk analysts</strong> to respond
+    without requiring IBM i command knowledge. This blog documents how I used Bob, an AI-powered IBM i development
+    assistant, to generate the solution and my overall experience.
+  </p>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="prompt">The Prompt I Gave Bob</h2>
+
+  <p>
+    I kept the initial prompt deliberately concise to see how Bob would interpret and expand on a high-level requirement:
+  </p>
+
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">User Prompt</span>
+      <div class="code-dots"><span></span><span></span><span></span></div>
+    </div>
+    <pre>An operations team needs a real-time job monitoring screen on IBM i.
+Write a fully free RPGLE program and its DDS display file that lists all
+jobs currently in MSGW (message wait) status. Operators can take action
+on each job.</pre>
+  </div>
+
+  <p>
+    One sentence of context. No technical specifications. No field list. No mention of SQL services,
+    subfile patterns, or CL commands.
+  </p>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="plan">Bob's Implementation Plan</h2>
+
+  <p>
+    Before generating a single line of code, Bob produced a structured implementation plan. This is one of the behaviors
+    I found most valuable — it reasoned through the design first and invited course-correction before anything was compiled.
+  </p>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/BobImplementation Plan.png" alt="Bob's Implementation Plan" />
+  </div>
+
+  <p>
+    This upfront decomposition of the problem gave me confidence that Bob understood the full scope.
+  </p>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="dspf">Generating the Display File</h2>
+
+  <p>
+    Bob generated a DDS display file (<code>MSGWDSPF</code>) with five record formats, each serving a distinct purpose:
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Record Format</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td><code>MSGSFL</code></td><td>Subfile — one scrollable row per MSGW job</td></tr>
+        <tr><td><code>MSGCTL</code></td><td>Subfile control — screen title, column headings, job count</td></tr>
+        <tr><td><code>FOOTER</code></td><td>Function key legend on lines 22–23, <code>OVERLAY</code></td></tr>
+        <tr><td><code>MSGQSFL</code></td><td>System message subfile on line 24</td></tr>
+        <tr><td><code>MSGQCTL</code></td><td>Message subfile control</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>The Subfile Record — MSGSFL</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/The Subfile Record-MSGSFL.png" alt="The Subfile Record — MSGSFL" />
+  </div>
+
+  <div class="callout info">
+    <strong>Design Note: The Hidden SFQJOB Field</strong>
+    The full qualified job name (<code>327961/BOB4IPGMR/PGMA</code>) must be passed verbatim to every CL command.
+    Storing it in a hidden subfile field means it travels with each row, surviving the round-trip to the operator
+    and back without any reconstruction logic.
+  </div>
+
+  <h3>The Subfile Control Record — MSGCTL</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/The Subfile Control Record - MSGCTL.png" alt="The Subfile Control Record — MSGCTL" />
+  </div>
+
+  <p>
+    Bob's use of <code>CTJOBCNT</code> as a <strong>named output field</strong> was intentional: the <code>COLOR</code>
+    keyword in DDS is only valid on named fields. The job count displays in <strong>green</strong> when MSGW jobs are
+    present and <strong>yellow</strong> when the list is empty — a visual affordance for immediate severity assessment.
+  </p>
+
+  <h3>The Message Subfile — MSGQSFL and MSGQCTL</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/The Message Subfile — MSGQSFL and MSGQCTL.png" alt="The Message Subfile — MSGQSFL and MSGQCTL" />
+  </div>
+
+  <p>
+    Status messages are routed through <code>QMHSNDPM</code> to <code>*EXT</code> (the external message queue)
+    and displayed via the message subfile on line 24 — the standard IBM i pattern for interactive program feedback.
+  </p>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="rpgle">Generating the RPGLE Program</h2>
+
+  <p>
+    The SQLRPGLE program (<code>MSGWMON</code>) is fully free-format (<code>**free</code>), thoroughly commented,
+    and organized into focused subroutines.
+  </p>
+
+  <h3>Control Options and File Declaration</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/Control Options and File Declaration.png" alt="Control Options and File Declaration" />
+  </div>
+
+  <h3>The QCMDEXC Prototype</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/The QCMDEXC Prototype.png" alt="The QCMDEXC Prototype" />
+  </div>
+
+  <h3>The SQL Cursor</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/The SQL Cursor.png" alt="The SQL Cursor" />
+  </div>
+
+  <p>
+    A critical nuance Bob handled correctly: <code>JOB_NAME</code> in <code>ACTIVE_JOB_INFO</code> is already the
+    <strong>fully qualified</strong> name (<code>number/user/name</code>). The nested <code>LOCATE</code> +
+    <code>SUBSTR</code> expression extracts only the short job name for the display column, while the full qualified
+    name is stored in <code>SFQJOB</code> for command execution.
+  </p>
+
+  <h3>Subfile Load Logic</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/Subfile Load Logic.png" alt="Subfile Load Logic" />
+  </div>
+
+  <h3>Processing Operator Options</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/Processing Operator Options.png" alt="Processing Operator Options" />
+  </div>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="enhancements">First Compile and Enhancement Requests</h2>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/First Compile and Enhancement Requests.png" alt="First Compile and Enhancement Requests" />
+  </div>
+
+  <p>
+    The initial compile succeeded. I ran the program and the MSGW monitor screen appeared correctly.
+    I then made two targeted enhancement requests:
+  </p>
+
+  <ol>
+    <li>
+      <strong>Remove the redundant <code>F5=Refresh</code> label from the subfile control header.</strong>
+      It was already present in the <code>FOOTER</code> record on line 23. Having it in the <code>MSGCTL</code>
+      header was visual clutter.
+    </li>
+    <li>
+      <strong>Confirm the job count color logic.</strong>
+      Green when jobs are present (urgency acknowledged, action needed), yellow when the list is empty (system healthy).
+    </li>
+  </ol>
+
+  <p>
+    Bob understood both requests immediately and made <strong>only the targeted changes</strong> — a single constant
+    removed from <code>MSGCTL</code> and a confirmation that indicator 35 (<code>CntGrn = (WkJobCnt &gt; 0)</code>)
+    already implemented the correct color behavior. It did not regenerate the entire file.
+  </p>
+
+  <div class="callout success">
+    <strong>Key observation:</strong>
+    This is one of the most underrated qualities of AI-assisted development — surgical precision on incremental changes.
+    Every enhancement touched only what needed to change.
+  </div>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="bug">The Runtime Bug — and How Bob Diagnosed It</h2>
+
+  <p>
+    After the enhancement recompile, I discovered a behavior defect during testing.
+  </p>
+
+  <div class="callout error">
+    <strong>Symptom:</strong>
+    Every time the subfile refreshed — pressing <code>F5</code> or returning from an action — the function key
+    legend on lines 22–23 was <strong>wiped off the screen</strong>.
+  </div>
+
+  <p>I reported it to Bob:</p>
+
+  <blockquote>
+    <p>"The function key footer disappears every time the subfile refreshes."</p>
+  </blockquote>
+
+  <p>Bob's diagnosis was immediate, precise, and technically correct:</p>
+
+  <blockquote>
+    <p>
+      "The root cause is that <code>EXFMT MSGCTL</code> performs a full-screen write operation. Without
+      <code>OVERLAY</code> on the subfile control record, the 5250 data stream clears all screen positions not
+      explicitly written by that operation — including the <code>FOOTER</code> record on lines 22–23. Adding
+      <code>OVERLAY</code> to <code>MSGCTL</code> instructs the 5250 write operation to merge its output with
+      the existing screen content rather than replacing it entirely."
+    </p>
+  </blockquote>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/OVERLAY Missing.png" alt="OVERLAY Missing vs Fixed" />
+  </div>
+
+  <p>
+    One DDS keyword. Bob identified it, explained the underlying 5250 write semantics, updated the source,
+    and the issue was resolved after recompilation. The FOOTER remained persistent on every subsequent refresh.
+  </p>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="otherbugs">Other Subtle IBM i Bugs Bob Caught</h2>
+
+  <p>
+    The development journey was not perfectly linear. Several IBM i-specific defects surfaced during the iterative
+    testing cycle. Bob identified and resolved all of them.
+  </p>
+
+  <h3>Bug 1 — Corrupt Qualified Job Name</h3>
+
+  <div class="callout error">
+    <strong>Symptom:</strong> All CL commands (<code>HLDJOB</code>, <code>ENDJOB</code>, etc.) were failing with "job not found" errors.
+  </div>
+
+  <p>
+    <strong>Root cause:</strong> Early code was reconstructing the qualified job name by concatenating
+    <code>JobNumber + '/' + JobUser + '/' + JobName</code>. What was not immediately obvious is that
+    <code>JOB_NAME</code> from <code>ACTIVE_JOB_INFO</code> is <em>already</em> the fully qualified name in
+    <code>number/user/name</code> format. The reconstruction was double-encoding it, producing corrupt values like
+    <code>327961/BOB4IPGMR/327961/BOB4</code> (truncated at 28 characters).
+  </p>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/Corrupt Qualified Job Name.png" alt="Corrupt Qualified Job Name fix" />
+  </div>
+
+  <h3>Bug 2 — QCMDEXC varchar vs char Parameter Type</h3>
+
+  <div class="callout error">
+    <strong>Symptom:</strong> Every command via <code>QCMDEXC</code> failed with <em>"contains a character that is not valid"</em> — even syntactically correct commands.
+  </div>
+
+  <p>
+    <strong>Root cause:</strong> When a <code>varchar</code> variable is passed to a <code>varchar OPTIONS(*VARSIZE)</code>
+    parameter in ILE RPG, the compiler includes the internal <strong>2-byte length prefix</strong> as part of the data
+    stream. <code>QCMDEXC</code> interprets those two bytes as the first two characters of the command string,
+    producing two invisible leading characters that make the command invalid.
+  </p>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/QCMDEXC varchar vs char Parameter Type.png" alt="QCMDEXC varchar vs char Parameter Type" />
+  </div>
+
+  <div class="callout warn">
+    <strong>Why this matters:</strong>
+    This is a genuinely obscure IBM i calling-convention nuance. It is documented, but it sits in a corner of the
+    ILE RPG Programmer's Guide that most developers encounter only after hours of debugging a symptom that looks
+    completely unrelated to a prototype declaration.
+  </div>
+
+  <h3>Bug 3 — WRKMSG Is Not a Valid Command for Jobs</h3>
+
+  <div class="callout error">
+    <strong>Symptom:</strong> Option 5 (Display Messages) failed with "command not found" or "parameter not valid" errors.
+  </div>
+
+  <p>
+    <strong>Root cause:</strong> The initial implementation used <code>WRKMSG JOB(...)</code>. The <code>WRKMSG</code>
+    command operates on <strong>message queue objects</strong> (e.g., <code>WRKMSG MSGQ(QGPL/QSYSOPR)</code>),
+    not job names. It does not accept a <code>JOB()</code> parameter.
+  </p>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/WRKMSG Is Not a Valid Command for Jobs.png" alt="WRKMSG Is Not a Valid Command for Jobs" />
+  </div>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="final">The Final Working Subfile Screen</h2>
+
+  <h3>Compile Results</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/Compile Results.png" alt="Compile Results" />
+  </div>
+
+    <div class="callout success">
+    <strong>Zero warnings. Zero errors.</strong>
+    The 46 informational messages (<code>*RNF7066</code>, <code>*RNF7031</code>) are expected — they indicate
+    subfile format names managed via <code>QMHSNDPM</code> rather than direct RPG I/O operations.
+  </div>
+  
+  <h3>Live Screen — IBM i 5250 Terminal</h3>
+
+  <div class="screenshot-wrap">
+    <img src="../images/ibmi-msgw-job-monitor-bob/Live Screen — IBM i 5250 Terminal.png" alt="Live Screen — IBM i 5250 Terminal" />
+  </div>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="productivity">Productivity Impact</h2>
+
+  <p>An honest estimate comparing traditional manual development against the AI-assisted approach:</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Development Task</th><th>Traditional Approach</th><th>With Bob</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>DDS subfile design and layout</td><td>2–3 hours</td><td>~5 minutes</td></tr>
+        <tr><td>RPGLE subfile load/display logic</td><td>3–4 hours</td><td>~10 minutes</td></tr>
+        <tr><td>SQL cursor with <code>ACTIVE_JOB_INFO</code></td><td>45–60 minutes</td><td>Included</td></tr>
+        <tr><td>Message subfile wiring (QMHSNDPM)</td><td>1–2 hours</td><td>Included</td></tr>
+        <tr><td>Debugging the <code>OVERLAY</code> issue</td><td>5–10 minutes</td><td>1–2 minutes</td></tr>
+        <tr><td>Resolving the <code>varchar</code>/<code>char</code> QCMDEXC defect</td><td>1–2 hours (obscure)</td><td>~5 minutes</td></tr>
+        <tr><td>Total iterative refinement cycles</td><td>Multiple loops</td><td>Continuous inline</td></tr>
+        <tr style="font-weight:700; background:#e8f4fd;">
+          <td>Estimated Total</td><td>~2 business days</td><td>&lt; 1 hour</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <h2 id="demo">Watch the MSGW Job Monitor in Action</h2>
+
+  <p>
+    Here is a complete walkthrough of the MSGW Job Monitor subfile in action, built using Bob.
+  </p>
+
+  <div style="position:relative; padding-bottom:56.25%; height:0; overflow:hidden; border-radius:8px; margin:24px 0;">
+    <iframe
+      style="position:absolute; top:0; left:0; width:100%; height:100%; border:0;"
+      src="https://www.youtube.com/embed/ByCVcK9ECUc?si=DPyEj63NhhfPcFDH"
+      title="MSGW Job Monitor — Live Demo on IBM i"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen>
+    </iframe>
+  </div>
+
+</div><!-- .page-wrap -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- FOOTER                                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<footer class="site-footer">
+  <div class="artifacts">
+    <span>📁 BOB4IPGMR/QDSPFSRC(MSGWDSPF)</span>
+    <span>📁 BOB4IPGMR/QRPGLESRC(MSGWMON)</span>
+    <span>▶ CALL PGM(BOB4IPGMR/MSGWMON)</span>
+  </div>
+  <div style="margin-bottom:14px;">
+    <a href="../code/ibmi-msgw-job-monitor/msgwmon.sqlrpgle"
+       style="color:#78a9ff;font-family:var(--font-mono);font-size:.875rem;margin-right:20px;">
+      View MSGWMON.sqlrpgle ↗
+    </a>
+    <a href="../code/ibmi-msgw-job-monitor/msgwdspf.dspf"
+       style="color:#78a9ff;font-family:var(--font-mono);font-size:.875rem;">
+      View MSGWDSPF.dspf ↗
+    </a>
+  </div>
+  <div>IBM i Development Blog</div>
+  <div class="tags">
+    <span>IBM i</span><span>RPG</span><span>RPGLE</span><span>ILE</span>
+    <span>DDS</span><span>Subfile</span><span>AI-Assisted</span>
+    <span>Db2 for i</span><span>Operations</span><span>Job Management</span>
+  </div>
+</footer>
+
+</body>
+</html>
